@@ -1,0 +1,144 @@
+---
+title: "Modelo de panel espacial para la predicción del VA municipal"
+output: pdf_document
+---
+
+Este documento tiene por objetivo la presentación de un modelo de pronóstico para el valor agregado municipal que aprovecha la dimensión geográfica y la dimensión espacial de los datos.
+
+Se inicia cargando las librerías necesarias.
+
+```{r message=FALSE, warning=FALSE}
+library(sp)
+library(rgdal)
+library(spdep)
+library(readxl)
+library(tidyverse)
+library(splm)
+library(panelr)
+library("tmap")
+
+```
+
+En los datos, se tienen:
+
+1. El valor agregado del sector educación por municipio, distribuido desde el departamental bajo el supuesto de que la participación del sector educación en el sector terciario es igual para los municipios que para el departamento. Así, desde el valor agregado del sector terciario por municipio se llega al valor agregado de la educación por municipio.
+2. El número de establecimientos educativos como un proxy al capital.
+3. El número de profesores como proxy a la fuerza laboral.
+4. El número de estudiantes como proxy a las transferencias
+5. El Shape de Antioquia que contiene los polígonos para cada municipio.
+
+```{r message=FALSE, warning=FALSE}
+shape_antioquia <- readOGR(dsn=file.choose(),layer="MpiosAntioquia")
+datos <- read_excel(file.choose())
+datos_ent <- datos[,c("Codigo","alumnos_2015","docentes_2015",
+                      "establecimientos_2015", "alumnos_2016",
+                      "docentes_2016", "establecimientos_2016",
+                      "PIB_2015","PIB_2016")]
+names(datos_ent)[1] <- "COD_MPIO"
+```
+
+
+A continuación se visualiza el valor agregado para el 2015 y el 2016 por municipios, aprovechando el shape de Antioquia.
+
+```{r warning=FALSE}
+
+coordenadas <- cbind.data.frame (shape_antioquia@data[,2],coordinates(shape_antioquia)) 
+names(coordenadas)[1] <- "Codigo"
+pib_mun <- merge(coordenadas,datos[,c(1,14,15)],by="Codigo")
+pib_mun <-SpatialPointsDataFrame(pib_mun[,2:3], pib_mun)
+proj4string(pib_mun) = proj4string(shape_antioquia)
+
+# Mapa de puntos coloreado
+tm_shape(shape_antioquia) + tm_borders(alpha=.4) +
+  tm_shape(pib_mun) + 
+  tm_bubbles(size = "PIB_2015", col = "PIB_2015", palette = "Blues", style = "quantile")
+
+```
+
+```{r}
+tm_shape(shape_antioquia) + tm_borders(alpha=.4) +
+  tm_shape(pib_mun) + 
+  tm_bubbles(size = "PIB_2016", col = "PIB_2016", palette = "Blues", style = "quantile")
+
+```
+
+Para la estimación del modelo, los datos se convierten en formato largo, es decir, donde las mediciones de las variables en el tiempo se incorporan en una misma columna; esto es contrario al formato ancho donde para cada año existe una columna que contiene la medición de la variable para cada municipio.
+
+```{r}
+datos_ent <- long_panel(datos_ent,prefix="_20",begin=15,end=16,label_location="end",wave="Año")
+```
+
+Para la estimación de todo modelo espacial se debe introducir una matriz de pesos espaciales, que define la relación de vecindad de los municipios.
+
+```{r}
+nb_antioquia <- poly2nb(shape_antioquia)
+pesos_antioquia <- nb2listw(nb_antioquia)
+```
+
+El modelo espacial, siguiendo a Lampis (2016), intenta aproximarse a la estimación del valor agregado desde la perspectiva de una función de producción; es decir, el valor agregado es una función del capital y del trabajo usados en el sector particular; no obstante, ya que también se incluye educación de no mercado, se debe incluir una variable que capture el efecto de las transferencias del estado sobre el valor de producción del sector. Este modelo espacial puede ser de dos tipos: un modelo de rezagos espaciales, donde el valor agregado de un municipio tiene asociaciones positivas o negativas con el de sus vecinos, y un modelo de errores espaciales, donde es en el término de error donde se presentan dichas asociaciones. En este caso se estiman ambos modelos y se verifica la significancia de los parámetros; este es conocido como un modelo Sarar.
+
+Respecto a la dimensión espacial, ya que se siguen múltiples variables para múltiples unidades muestrales en el tiempo, se tiene un modelo de panel de datos. Los modelos de panel de datos son principalmente de dos tipos: los modelos de efectos fijos y los modelos de efectos aleatorios. La decisión sobre cuál modelo utilizar depende enteramente de la covarianza entre el término de error y el término de efecto individual no observado de los datos, esto se verifica mediante la prueba de Hausman. Según Arbia (2014), la aceptación de la hipótesis nula implica que el modelo a utilizar debe ser el de efectos aleatorios, y visceversa.
+
+Al realizar la prueba, se obtiene un rechazo a la hipótesis nula, de manera que el modelo correcto es el modelo de efectos fijos.
+
+```{r warning=FALSE}
+
+sphtest(PIB~alumnos+establecimientos+docentes,
+        data=datos_ent, listw=pesos_antioquia,
+        spatial.model="sarar",
+        method="ML",index="id",)
+```
+
+Arbia (2014) presenta los métodos de estimación de los modelos de panel espaciales. El método de estimación correcto para un modelo Sarar de efectos fijos es la máxima verosimilitud, la cual se puede implementar mediante la función spml.
+
+En la parte inferior puede observarse que el término "lambda" no es estadísticamente significativo lo cual indica que no hay un efecto de correlación entre el valor agregado de un municipio y sus vecinos, no obstante este efecto si existe para los errores.
+
+```{r warning=FALSE}
+modelo <- spml(PIB~alumnos+establecimientos+docentes,
+     data=datos_ent,index=c("id"),
+     spatial.error="b",listw=pesos_antioquia,
+      model="within",effect="individual",lag=TRUE)
+
+summary(modelo)
+```
+
+El modelo se reestima sin el componente SAR:
+
+```{r warning=FALSE}
+modelo <- spml(PIB~alumnos+establecimientos+docentes,
+     data=datos_ent,index=c("id"),
+     spatial.error="b",listw=pesos_antioquia,
+      model="within",effect="individual")
+
+summary(modelo)
+
+```
+
+Los efectos individuales del modelo que recogen los efectos de todas las variables faltantes para explicar el valor agregado municipal se pueden recuperar mediante la función effects.
+
+```{r}
+efectos <- effects(modelo)
+
+efectos[[2]]
+```
+
+La función splm no contiene un método de predicción por lo que esta se debe hacer de manera manual.
+
+```{r}
+datos_pron <- datos[,c("Codigo","alumnos_2017","docentes_2017","establecimientos_2017")]
+
+efectos[[1]][1]+efectos[[2]][,1]+
+  datos_pron$alumnos_2017*summary(modelo)$coeff[2]+
+  datos_pron$docentes_2017*summary(modelo)$coeff[4]+
+  datos_pron$establecimientos_2017*summary(modelo)$coeff[3]
+```
+
+El pronóstico negativo en algunos municipios puede tener su explicación en errores en la medición de las variables, o en el tamaño de la dimensión temporal del panel: algunas variables sufrieron reducciones mientras que el valor agregado aumento, de manera que la relación entre las variables y el valor agregado fue capturada con un signo negativo. Es posible que al aumentar la dimensión temporal, el efecto negativo se corrija.
+
+
+# Referencias
+
+Lampis, F. (2016). Forecasting the sectoral GVA of a small Spanish region. Economics and Business Letters, 5(2), 38-44.
+
+Arbia, G. (2014). A primer for spatial econometrics with applications in R. Palgrave Macmillan.
+
