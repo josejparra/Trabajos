@@ -1,0 +1,585 @@
+---
+title: "Pronóstico de cuentas"
+output: pdf_document
+---
+
+
+```{r include=FALSE}
+knitr::opts_chunk$set(warning=FALSE,message=FALSE)
+```
+
+
+El objetivo de este documento es realizar un pronóstico de las cuentas G-H,I,R-S,T,O, P Y Q, según la clasificación CIIU revisión 4, las cuales, desde el cambio del DANE a la metodología del 2015, tienen una agregación tal que se limita la aplicación de la metodología desarrollada por la Universidad de Antioquia para establecer las tasas de distribución de los municipios para estas cuentas.
+
+El pronóstico se basa en la metodología presentada en Enders (2008).
+
+
+```{r}
+library(readxl)
+library(tidyverse)
+library(urca)
+```
+
+
+
+```{r}
+cuentas <- read_excel("C:/Users/josej/Desktop/Gobernación/Tareas/Pronostico G+H+I/cuentas_base2005.xlsx")
+glimpse(cuentas)
+```
+
+## Pronóstico de G+H+I
+
+```{r}
+plot(i~años,data=cuentas,type="l")
+```
+```{r}
+plot(gh~años,data=cuentas,type="l")
+
+```
+
+Como puede observarse, las series no son estacionarias en media (no tienen una media constante en el tiempo), pero son estables en varianza (su dispersión en torno a la media no aumenta o disminuye siguiendo un patrón en el tiempo). 
+
+A continuación se realiza una prueba para establecer el orden de integración de la serie (número de veces que se debe diferenciar las serie para obtener una serie estacionaria).
+
+### División I
+
+```{r}
+summary(ur.df(cuentas$i,type="trend",lags=1))
+
+```
+
+El estadístico tau3 implica que se rechaza la hipótesis nula de raíz unitaria al 10% (el término del componente autoregresivo de la ecuación de prueba es distinto de cero). La prueba de significancia individual del intercepto y la tendencia implican que ambos son estadísticamente distintos de cero. Es posible que el modelo que describe la serie tenga una tendencia determinística cuadrática o lineal.
+
+Se inicia usando una tendencia lineal.
+
+```{r}
+cuentas$t <- 1:17
+modelo_i <- lm(i~t,data=cuentas)
+res_i <- resid(modelo_i)
+summary(ur_res_i <- ur.df(res_i,type="none",lags=1))
+
+```
+
+Los residuales del modelo son estacionarios; se rechaza la hipótesis nula de raíz unitaria.
+
+```{r}
+pacf(res_i)
+```
+```{r}
+acf(res_i)
+```
+
+Se observa autocorrelación en el modelo; se introduce un componente autoregresivo.
+
+```{r}
+entrenamiento <-data.frame("i"=cuentas$i[2:17],"i_rezago"=cuentas$i[1:16],"t"=cuentas$t[2:17]) 
+modelo_i <- lm(i~t+i_rezago,data=entrenamiento)
+res_i <- resid(modelo_i)
+summary(ur_res_i <- ur.df(res_i,type="none",lags=1))
+
+```
+
+```{r}
+pacf(res_i)
+```
+```{r}
+acf(res_i)
+```
+El modelo es el correcto.
+
+### División G+H
+
+```{r}
+summary(ur.df(cuentas$gh,type="trend",lags=1))
+```
+
+El estadístico tau3 indica que se rechaza la hipótesis nula de raíz unitaria al 5%. Se inicia con una tendencia lineal.
+
+```{r}
+modelo_gh <- lm(gh~t,data=cuentas)
+res_gh <- resid(modelo_gh)
+summary(ur_res_i <- ur.df(res_i,type="none",lags=1))
+```
+
+Los residuales del modelo son estacionarios; se rechaza la hipótesis nula de raíz unitaria.
+
+```{r}
+pacf(res_gh)
+```
+
+
+```{r}
+acf(res_gh)
+```
+
+El modelo está bien especificado. Se procede a pronosticar.
+
+### Pronóstico
+
+```{r echo=TRUE, message=TRUE}
+prediccion_2017 <- data.frame("i_rezago"=cuentas$i[17],"t"=c(18))
+i_2017 <- predict(modelo_i,prediccion_2017)
+prediccion_2018 <- data.frame("i_rezago"=c(cuentas$i[17],i_2017),"t"=c(18,19))
+i_2018 <- data.frame("i"=predict(modelo_i,prediccion_2018),"año"=c(2017,2018))
+i_2018
+```
+
+```{r echo=TRUE, message=TRUE}
+gh_2018 <- data.frame("gh"=predict(modelo_gh,prediccion_2018["t"]),"año"=c(2017,2018))
+gh_2018
+```
+
+
+## Pronóstico de O+P+Q
+
+```{r}
+plot(o~años,data=cuentas,type="l")
+```
+```{r}
+plot(p~años,data=cuentas,type="l")
+
+```
+```{r}
+plot(q~años,data=cuentas,type="l")
+
+```
+
+Como puede observarse, las series, aparentemente, no son estacionarias en media (no tienen una media constante en el tiempo), pero son estables en varianza (su dispersión en torno a la media no aumenta o disminuye siguiendo un patrón en el tiempo). 
+
+A continuación se realiza una prueba para establecer el orden de integración de la serie (número de veces que se debe diferenciar las serie para obtener una raíz unitaria).
+
+### División O
+
+```{r}
+summary(ur.df(cuentas$o,type="trend",lags=1))
+```
+
+Se hacen las siguientes observaciones:
+
+1. Por el estadístico tau3, no se rechaza la hipótesis nula de raíz unitaria.
+2. Por el estadístico phi3, no se rechaza la hipótesis nula de raíz unitaria y no tendencia determinística de manera que la tendencia no pertenece al modelo.
+
+Se debe realizar una prueba sin tendencia.
+
+```{r}
+summary(ur.df(cuentas$o,type="drift",lags=1))
+```
+
+De lo anterior se infiere que no se rechaza la hipótesis nula de raíz unitaria y, adicionalmente, no se rechaza la hipótesis nula de raíz unitaria y no intercepto.
+
+Se procede a realizar una prueba sin tendencia e intercepto.
+
+```{r}
+summary(ur.df(cuentas$o,type="none",lags=1))
+```
+
+Entonces, no se rechaza la hipótesis nula de raíz unitaria. Se realiza una prueba sobre la primera diferencia de la serie.
+
+```{r}
+summary(ur.df(diff(cuentas$o,differences=2),type="trend",lag=1))
+```
+
+Entonces la serie tiene dos raíces unitarias.
+
+```{r}
+pacf(diff(cuentas$o,differences=2))
+
+```
+
+```{r}
+acf(diff(cuentas$o,differences=2))
+
+```
+
+El proceso es ruido blanco. No es posible estimar un modelo.
+
+
+### División P
+
+```{r}
+summary(ur.df(cuentas$p,type="trend",lags=1))
+```
+
+No se rechaza la hipótesis nula de raíz unitaria, ni la hipótesis nula de no tendencia determinística ni raíz unitaria. Se procede a hacer la prueba sin tendencia.
+
+```{r}
+summary(ur.df(cuentas$p,type="drift",lag=1))
+```
+
+No se rechaza la hipótesis nula de raíz unitaria, pero se rechaza la hipótesis nula de raíz unitaria y no intercepto. Es decir que la serie tiene una raíz unitaria, y tendencia lineal. Se procede a hacer la prueba sobre la primera diferencia de la serie.
+
+
+```{r}
+summary(ur.df(diff(cuentas$p),type="trend",lag=1))
+```
+
+Se rechaza la hipótesis nula de raíz unitaria. Se analizan las funciones de autocorrelación y autocorrelación parcial para determinar los componentes del modelo ARIMA.
+
+
+```{r}
+acf(diff(cuentas$p))
+```
+
+```{r}
+pacf(diff(cuentas$p))
+```
+
+El proceso es ruido blanco, no se puede estimar un modelo.
+
+### División Q
+
+```{r}
+summary(ur.df(cuentas$q,type="trend",lags=1))
+```
+
+Se hacen las siguientes observaciones:
+
+1. No se rechaza la hipótesis nula de raíz unitaria.
+2. No se rechaza la hipótesis nula de raíz unitaria y no tendencia determinística de manera que la tendencia no pertenece al modelo.
+
+Se debe estimar una prueba sin tendencia.
+
+```{r}
+summary(ur.df(cuentas$q,type="drift",lags=1))
+```
+
+De lo anterior se infiere que no se rechaza la hipótesis nula de raíz unitaria y, adicionalmente, no se rechaza la hipótesis nula de raíz unitaria y no intercepto.
+
+Se procede a realizar una prueba sin tendencia e intercepto.
+
+```{r}
+summary(ur.df(cuentas$q,type="none",lags=1))
+```
+
+Entonces, se rechaza la hipótesis nula de raíz unitaria.
+
+Se verifican las funciones ACF y PACF para determinar la posibilidad de estimar un modelo ARMA.
+
+```{r}
+pacf(cuentas$q)
+
+```
+
+```{r}
+acf(cuentas$q)
+
+```
+
+Se sospecha un proceso AR(1).
+
+```{r}
+modelo_q <- arima(cuentas$q,order=c(1,0,0))
+res_q <- resid(modelo_q)
+summary(ur.df(res_q,type="drift",lag=1))
+
+```
+
+Los residuales son estacionarios.
+
+```{r}
+acf(res_q)
+```
+
+```{r}
+pacf(res_q)
+
+```
+
+El modelo especificado es correcto. Se procede a realizar el pronóstico.
+
+### Pronóstico
+
+Al no poder realizar un pronóstico de las secciones O y P, no es posible obtener la participación de cada una dentro del total.
+
+
+## Pronóstico R+S+T
+
+```{r}
+
+plot(rs~años,data=cuentas,type="l")
+
+```
+
+
+```{r}
+plot(t_cuentas~años,data=cuentas,type="l")
+```
+
+Las series son estables en varianza, aparentemente, no son estacionarias en media.
+
+### División R+S
+
+```{r}
+summary(ur.df(cuentas$rs,type="trend",lag=1))
+```
+
+Se rechaza la hipótesis nula de raíz unitaria.
+
+```{r}
+modelo_rs <- lm(rs~t,data=cuentas)
+res_rs <- resid(modelo_rs)
+summary(ur.df(res_rs,type="trend",lag=1))
+
+```
+
+Los residuales son estacionarios.
+
+```{r}
+acf(res_rs)
+```
+```{r}
+pacf(res_rs)
+
+```
+
+El modelo tiene autocorrelación residual. Se estima un modelo AR(2).
+
+```{r}
+modelo_rs2 <- arima(cuentas$rs,order=c(2,0,0))
+res_rs2 <- resid(modelo_rs2)
+summary(ur.df(res_rs2,type="none",lags=1))
+```
+
+```{r}
+acf(res_rs2)
+```
+```{r}
+pacf(res_rs2)
+
+```
+
+El modelo es correcto.
+
+### División T
+
+```{r}
+summary(ur.df(cuentas$t_cuentas,type="trend",lags=1))
+```
+
+No se rechaza la hipótesis nula de raíz unitaria, y no se rechaza la hipótesis nula de raíz unitaria y no tendencia e intercepto. Se procede a realizar la prueba sin tendencia.
+
+```{r}
+summary(ur.df(cuentas$t_cuentas,type="drift",lag=1))
+```
+
+Entonces, no se rechaza la hipótesis nula de raíz unitaria, pero se rechaza la hipótesis nula de raíz unitaria y no intercepto. Es decir que el modelo tiene intercepto. Se realiza la prueba de raíz unitaria a la primera diferencia de la serie.
+
+```{r}
+summary(ur.df(diff(cuentas$t_cuentas,differences=2),type="trend",lag=1))
+```
+
+Tras realizar el procedimiento múltiples veces, se concluyen dos raíces unitarias.
+
+```{r}
+acf(diff(cuentas$t_cuentas,differences=2))
+```
+```{r}
+pacf(diff(cuentas$t_cuentas,differences=2))
+
+```
+
+Se sospecha que la serie diferenciada sigue un proceso AR(1).
+
+```{r}
+modelo_t <- arima(cuentas$t_cuentas,order=c(1,2,0))
+res_t <- resid(modelo_t)
+summary(ur.df(res_t,type="drift",lag=1))
+```
+
+Los residuales son estacionarios.
+
+```{r}
+acf(res_t)
+```
+
+```{r}
+pacf(res_t)
+```
+
+El modelo es correcto. Se procede a la predicción.
+
+### Pronóstico
+
+```{r}
+rs_2018 <- data.frame("rs"=predict(modelo_rs2,2)$pred,"año"=c(2017,2018))
+rs_2018
+```
+```{r}
+t_2018 <- data.frame("t"=predict(modelo_t,2)$pred,"año"=c(2017,2018))
+t_2018
+```
+
+
+## Pronóstico de cuenta A
+
+```{r}
+plot(cafe~años,type="l",data=cuentas)
+```
+
+```{r}
+plot(otros~años,data=cuentas,type="l")
+```
+```{r}
+plot(pesca~años,type="l",data=cuentas)
+```
+```{r}
+plot(pecuaria~años,type="l",data=cuentas)
+```
+
+De los gráficos anteriores se observa que las series son estables en varianza, pero, aparentemente, no son estacionarias en media. Se procede a realizar la prueba de raíz unitaria y a modelar cada división de la cuenta.
+
+### Otros cultivos y sivicultura
+
+```{r}
+summary(ur.df(cuentas$otros,type="none",lag=1))
+```
+
+Se rechaza la hipótesis nula de raíz unitaria.
+
+
+```{r}
+acf(cuentas$otros)
+```
+
+```{r}
+pacf(cuentas$otros)
+```
+
+La serie sigue un proceso AR(1).
+
+```{r}
+modelo_otros <- arima(cuentas$otros,order=c(1,0,0))
+res_otros <- resid(modelo_otros)
+summary(ur.df(res_otros,type="drift",lag=1))
+```
+
+Los residuales son estacionarios.
+
+```{r}
+acf(res_otros)
+```
+
+```{r}
+pacf(res_otros)
+```
+
+El modelo especificado es correcto.
+
+### Producción pecuaria
+
+```{r}
+summary(ur.df(cuentas$pecuaria,type="trend",lag=1))
+```
+
+Se rechaza la hipótesis nula de raíz unitaria, y se rechaza la hipótesis nula de raíz unitaria y no tendencia.
+
+```{r}
+acf(cuentas$pecuaria)
+```
+
+```{r}
+pacf(cuentas$pecuaria)
+```
+
+La serie sigue un proceso AR(1).
+
+```{r}
+modelo_pec <- arima(cuentas$pecuaria,order=c(1,0,0))
+res_pec <- resid(modelo_pec)
+summary(ur.df(res_pec,type="trend",lag=1))
+```
+
+Los residuales son estacionarios.
+
+```{r}
+acf(res_pec)
+```
+```{r}
+pacf(res_pec)
+```
+
+El modelo especificado es correcto.
+
+### Pesca
+
+```{r}
+summary(ur.df(cuentas$pesca,type="trend",lag=1))
+```
+
+Se rechaza la hipótesis nula de raíz unitaria, y se rechaza la hipótesis nula de raíz unitaria y no tendencia.
+
+```{r}
+acf(cuentas$pesca)
+```
+```{r}
+pacf(cuentas$pesca)
+```
+
+Se sospecha que la serie sigue un proceso AR(1).
+
+```{r}
+modelo_pesca <- arima(cuentas$pesca,order=c(1,0,0))
+res_pesca <- resid(modelo_pesca)
+summary(ur.df(res_pesca,type="none",lag=1))
+```
+
+Los residuales del modelo son estacionarios.
+
+```{r}
+acf(res_pesca)
+```
+```{r}
+pacf(res_pesca)
+```
+
+El modelo especificado es correcto.
+
+### Total
+
+```{r}
+summary(ur.df(cuentas$total_a,type="none",lag=1))
+```
+
+Se rechaza la hipótesis nula de raíz unitaria.
+
+```{r}
+acf(cuentas$total_a)
+```
+```{r}
+pacf(cuentas$total_a)
+
+```
+
+La serie sigue un proceso AR(1).
+
+```{r}
+modelo_total_a <-arima(cuentas$total_a,order=c(1,0,0)) 
+res_total_a <- resid(modelo_total_a)
+summary(ur.df(res_total_a,type="trend",lag=1))
+```
+
+Los residuales del modelo son estacionarios.
+
+```{r}
+acf(res_total_a)
+```
+```{r}
+pacf(res_total_a)
+```
+
+El modelo especificado es correcto.
+
+### Pronóstico
+
+
+```{r}
+pronostico_otros_2018 <- data.frame("Otros"=predict(modelo_otros,2)$pred,"Año"=c(2017,2018))
+pronostico_pec_2018 <- data.frame("Pecuarias"=predict(modelo_pec,2)$pred,"Año"=c(2017,2018))
+pronostico_pesc_2018 <- data.frame("Pesca"=predict(modelo_pesca,2)$pred,"Año"=c(2017,2018))
+pronostico_total_2018 <- data.frame("Total"=predict(modelo_total_a,2)$pred,"Año"=c(2017,2018))
+```
+
+# Bibliografía
+
+
+Enders, Walter (2008). Applied Time Series Econometrics. Wiley.
